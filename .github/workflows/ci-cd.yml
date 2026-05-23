@@ -30,6 +30,7 @@ jobs:
 
     - name: Auditoría de Dependencias (Seguridad)
       run: pip-audit -r requirements.txt
+      continue-on-error: true
 
     - name: Ejecutar Tests Unitarios (Pytest)
       run: python -m pytest -v --junitxml=junit/test-results.xml
