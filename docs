@@ -1,0 +1,16 @@
+# Documentación: Estrategia de Branching y Pipeline CI
+
+## 1. Estrategia de Branching
+Para garantizar la integridad del código en este proyecto, utilizamos un enfoque basado en **Feature Branching**:
+* **Rama `main`**: Es la rama principal de producción. Se mantiene bloqueada para commits directos y solo recibe código que haya superado las validaciones.
+* **Rama `feature/ci-tests-and-linting`**: Se creó esta rama de trabajo aislada para implementar los tests, la seguridad y automatizar el CI. Todo el desarrollo se realizó aquí para no contaminar la rama principal. Al finalizar y pasar todos los checks en verde de GitHub Actions, esta rama se integrará a `main` a través de un **Pull Request**.
+
+## 2. Funcionamiento del Pipeline CI
+El proceso de Integración Continua fue construido en GitHub Actions (`.github/workflows/ci-cd.yml`) y se dispara automáticamente con cada `push` o `pull_request`. El flujo ejecuta los siguientes pasos secuenciales:
+
+1. **Aprovisionamiento**: Levanta un entorno Ubuntu virtual y configura Python 3.11.
+2. **Dependencias**: Instala los requerimientos de la API y las herramientas de validación (`pytest`, `flake8`, `pip-audit`).
+3. **Validación de Calidad (Linting)**: Ejecuta `flake8` sobre los directorios `src/` y `tests/` asegurando el cumplimiento estricto del estándar PEP 8.
+4. **Auditoría de Seguridad**: Usa `pip-audit` para analizar `requirements.txt` en busca de librerías vulnerables (CVEs). *(Nota: El pipeline detectó exitosamente una vulnerabilidad en Flask 3.0.0, la cual fue mitigada actualizando a la versión 3.1.3).*
+5. **Pruebas Unitarias**: Lanza la suite de `pytest` validando 5 escenarios clave del ciclo de vida de las tareas (creación, listado, borrado, manejo de errores).
+6. **Exportación de Artefactos**: Al finalizar, pase lo que pase, compila un reporte en formato JUnit XML y lo adjunta a la ejecución de GitHub Actions como un artefacto descargable llamado `reportes-ci-build`.
