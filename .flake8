@@ -1,0 +1,7 @@
+[flake8]
+# Ignora las carpetas que no son código tuyo
+exclude = .git, __pycache__, venv, env, .venv
+# Aumentamos el límite de caracteres por línea para que sea más flexible
+max-line-length = 127
+# Ignoramos la advertencia de "línea en blanco al final del archivo" o cosas menores si quieres
+extend-ignore = W292
