@@ -1,9 +1,27 @@
 from flask import Flask, request, jsonify
 import sqlite3
 import os
+import logging
+import json
+
+from prometheus_flask_exporter import PrometheusMetrics
 
 app = Flask(__name__)
 DB_PATH = os.environ.get("DB_PATH", "tasks.db")
+
+
+class _JsonFormatter(logging.Formatter):
+    def format(self, record):
+        return json.dumps({"level": record.levelname, "message": record.getMessage()})
+
+
+_handler = logging.StreamHandler()
+_handler.setFormatter(_JsonFormatter())
+logging.root.handlers = [_handler]
+logging.root.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
+
+metrics = PrometheusMetrics(app)
 
 
 def get_db():
@@ -30,6 +48,11 @@ def init_db():
 init_db()
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
+
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({"name": "To-Do API", "version": "1.0.0", "endpoints": ["/tasks"]})
@@ -40,6 +63,7 @@ def list_tasks():
     conn = get_db()
     tasks = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC").fetchall()
     conn.close()
+    logger.info("list_tasks count=%d", len(tasks))
     return jsonify([dict(t) for t in tasks])
 
 
@@ -47,6 +71,7 @@ def list_tasks():
 def create_task():
     data = request.get_json()
     if not data or "title" not in data:
+        logger.warning("create_task: missing title")
         return jsonify({"error": "El campo 'title' es obligatorio"}), 400
 
     title = data["title"]
@@ -61,6 +86,7 @@ def create_task():
     conn.commit()
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
+    logger.info("create_task id=%d title=%s", task_id, title)
     return jsonify(dict(task)), 201
 
 
@@ -70,6 +96,7 @@ def get_task(task_id):
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
     if task is None:
+        logger.warning("get_task id=%d not found", task_id)
         return jsonify({"error": "Tarea no encontrada"}), 404
     return jsonify(dict(task))
 
@@ -84,6 +111,7 @@ def update_task(task_id):
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if task is None:
         conn.close()
+        logger.warning("update_task id=%d not found", task_id)
         return jsonify({"error": "Tarea no encontrada"}), 404
 
     title = data.get("title", task["title"])
@@ -97,6 +125,7 @@ def update_task(task_id):
     conn.commit()
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     conn.close()
+    logger.info("update_task id=%d", task_id)
     return jsonify(dict(task))
 
 
@@ -106,11 +135,13 @@ def delete_task(task_id):
     task = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if task is None:
         conn.close()
+        logger.warning("delete_task id=%d not found", task_id)
         return jsonify({"error": "Tarea no encontrada"}), 404
 
     conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
     conn.commit()
     conn.close()
+    logger.info("delete_task id=%d", task_id)
     return jsonify({"message": "Tarea eliminada"}), 200
 
 
