@@ -14,3 +14,72 @@ El proceso de Integración Continua fue construido en GitHub Actions (`.github/w
 4. **Auditoría de Seguridad**: Usa `pip-audit` para analizar `requirements.txt` en busca de librerías vulnerables (CVEs). *(Nota: El pipeline detectó exitosamente una vulnerabilidad en Flask 3.0.0, la cual fue mitigada actualizando a la versión 3.1.3).*
 5. **Pruebas Unitarias**: Lanza la suite de `pytest` validando 5 escenarios clave del ciclo de vida de las tareas (creación, listado, borrado, manejo de errores).
 6. **Exportación de Artefactos**: Al finalizar, pase lo que pase, compila un reporte en formato JUnit XML y lo adjunta a la ejecución de GitHub Actions como un artefacto descargable llamado `reportes-ci-build`.
+7. **Construcción y Publicación de Imagen Docker**: Si los tests pasan y el evento es un `push` (no un PR), se construye la imagen Docker y se publica en GitHub Container Registry (`ghcr.io`) con tres tags simultáneos: el SHA corto del commit (`sha-<7chars>`), el nombre de la rama, y `latest` exclusivamente cuando el push es a `main`.
+
+## 3. Estrategia de Observabilidad
+
+La observabilidad del sistema se implementa en tres niveles complementarios: logs, métricas y visualización.
+
+### 3.1 Logs Estructurados
+
+La aplicación Flask emite todos sus logs en formato JSON por stdout:
+
+```json
+{"level": "INFO", "message": "create_task id=42 title=Revisar documentacion"}
+{"level": "WARNING", "message": "get_task id=99 not found"}
+```
+
+Esto permite que cualquier agregador de logs (Loki, CloudWatch, Datadog) indexe los campos directamente sin necesidad de parsear texto libre. Se usa el módulo estándar `logging` de Python con un `Formatter` personalizado, sin dependencias adicionales.
+
+### 3.2 Health Check
+
+El endpoint `GET /health` retorna `{"status": "ok"}` con HTTP 200. Está diseñado para ser consumido por el orquestador de contenedores (Docker Compose, Kubernetes) para determinar si la instancia está lista para recibir tráfico.
+
+### 3.3 Métricas con Prometheus
+
+El endpoint `GET /metrics` es expuesto automáticamente por la librería `prometheus-flask-exporter`. Sin configuración adicional, instrumenta cada ruta de Flask y exporta métricas como:
+
+- `flask_http_request_total` — conteo de requests por endpoint, método y código de respuesta.
+- `flask_http_request_duration_seconds` — histograma de latencias por endpoint.
+
+Prometheus (`prom/prometheus:v2.51.2`) recoge estas métricas cada 15 segundos desde `api:5000/metrics`, según la configuración en `prometheus/prometheus.yml`.
+
+### 3.4 Visualización con Grafana
+
+Grafana (`grafana/grafana:10.4.2`) se conecta automáticamente a Prometheus como datasource por defecto gracias al archivo de aprovisionamiento en `grafana/provisioning/datasources/prometheus.yml`. Disponible en `http://localhost:3000` (credenciales: `admin/admin`).
+
+El stack de observabilidad completo se levanta con:
+
+```bash
+docker compose up --build
+```
+
+| Servicio    | URL                         |
+|-------------|-----------------------------|
+| API Flask   | http://localhost:5000        |
+| Prometheus  | http://localhost:9090        |
+| Grafana     | http://localhost:3000        |
+
+## 4. Marco CALMS
+
+CALMS es el marco conceptual que articula los cinco pilares de una cultura DevOps madura. A continuación se describe cómo cada pilar se manifiesta en este proyecto.
+
+### Culture (Cultura)
+
+El proyecto adopta una cultura de responsabilidad compartida entre desarrollo y operaciones. La rama `main` está protegida: ningún cambio llega a producción sin haber pasado por un Pull Request revisado y con todos los checks en verde. El uso de feature branches nombradas descriptivamente (`feature/ci-tests-and-linting`, `feature/docker-observability`) comunica el propósito de cada línea de trabajo al equipo completo.
+
+### Automation (Automatización)
+
+Toda validación manual fue eliminada del flujo de trabajo. El pipeline de GitHub Actions ejecuta automáticamente linting, auditoría de seguridad, tests unitarios, construcción de imagen Docker y publicación en el registry ante cada push. No existe un paso de "revisar el código a mano antes de subir" — la automatización es el guardián.
+
+### Lean (Mejora continua)
+
+El pipeline está diseñado para fallar rápido: linting y auditoría corren antes que los tests, de modo que los errores más baratos de detectar se encuentran primero. La auditoría de dependencias con `pip-audit` detectó activamente la vulnerabilidad CVE-2026-27205 en Flask 3.0.0, que fue mitigada en el mismo ciclo de trabajo actualizando a la versión 3.1.3.
+
+### Measurement (Medición)
+
+El sistema expone métricas de comportamiento en tiempo real a través de Prometheus y Grafana: tasa de requests por endpoint, distribución de latencias y códigos de respuesta. Los logs estructurados en JSON permiten trazar eventos individuales. Los reportes JUnit generados por pytest quedan adjuntos como artefactos descargables en cada ejecución del pipeline, creando un historial medible de la calidad del código.
+
+### Sharing (Compartir)
+
+La documentación en `docs/` centraliza el conocimiento operativo del proyecto: estrategia de branching, funcionamiento del pipeline, arquitectura de observabilidad y este marco CALMS. El `Dockerfile` y `docker-compose.yml` garantizan que cualquier integrante del equipo pueda levantar el entorno completo —incluyendo Prometheus y Grafana— con un solo comando, eliminando el problema de "en mi máquina funciona".
