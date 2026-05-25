@@ -60,6 +60,44 @@ docker compose up --build
 | Prometheus  | http://localhost:9090        |
 | Grafana     | http://localhost:3000        |
 
+## 5. Kubernetes — Despliegue en Clúster (Bonus)
+
+Los manifiestos de Kubernetes se encuentran en la carpeta `k8s/` y permiten desplegar la API Flask en cualquier clúster compatible (minikube, kind, GKE, EKS, etc.).
+
+### Archivos
+
+| Archivo | Recurso | Propósito |
+|---|---|---|
+| `k8s/api-pvc.yml` | PersistentVolumeClaim | Reserva 1 GiB de almacenamiento para la base de datos SQLite |
+| `k8s/api-deployment.yml` | Deployment | Define el Pod de la API con probes y montaje del volumen |
+| `k8s/api-service.yml` | Service (NodePort) | Expone la API en el puerto `30500` del nodo |
+
+### Decisiones de diseño
+
+**`replicas: 1`** — SQLite no soporta escrituras concurrentes desde múltiples procesos. Escalar a más de una réplica requeriría migrar a una base de datos cliente-servidor (PostgreSQL, MySQL). Con una réplica, el volumen `ReadWriteOnce` es suficiente y la base de datos permanece consistente.
+
+**Liveness y Readiness Probes** — Ambas apuntan a `GET /health`. La `readinessProbe` (delay 5 s) controla cuándo Kubernetes empieza a enviar tráfico al Pod. La `livenessProbe` (delay 10 s) reinicia el Pod si la app queda en estado irrecuperable. Este es el motivo por el que se implementó el endpoint `/health` en la fase de observabilidad.
+
+**NodePort `30500`** — Permite acceder a la API desde fuera del clúster sin necesidad de un LoadBalancer externo, lo cual es ideal para entornos locales de desarrollo.
+
+### Despliegue
+
+```bash
+# Aplicar todos los manifiestos en orden
+kubectl apply -f k8s/api-pvc.yml
+kubectl apply -f k8s/api-deployment.yml
+kubectl apply -f k8s/api-service.yml
+
+# Verificar estado
+kubectl get pods
+kubectl get svc flask-api-service
+
+# Acceder a la API (minikube)
+curl http://$(minikube ip):30500/health
+```
+
+La imagen usada (`ghcr.io/samoncadas/devops-final-seed:latest`) es la misma que publica automáticamente el pipeline de CI/CD en cada push a `main`.
+
 ## 4. Marco CALMS
 
 CALMS es el marco conceptual que articula los cinco pilares de una cultura DevOps madura. A continuación se describe cómo cada pilar se manifiesta en este proyecto.
