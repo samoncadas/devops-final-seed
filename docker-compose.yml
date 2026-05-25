@@ -1,0 +1,13 @@
+services:
+  api:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - db_data:/data
+    environment:
+      - DB_PATH=/data/tasks.db
+      - PORT=5000
+
+volumes:
+  db_data:
